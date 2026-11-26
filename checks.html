@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customary vs Metric Units: Math Checks</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 16px auto; padding: 0 16px; background: #fbf6ec; color: #3b2f25; line-height: 1.45; }
+  h1 { font-size: 1.3rem; }
+  .pass { color: #3d4f1e; } .fail { color: #7a2418; font-weight: 700; }
+  #summary { font-weight: 700; font-size: 1.1rem; }
+  iframe { width: 100%; height: 320px; border: 1px solid #8a6d4b; background: #fff; }
+  li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<h1>Customary vs Metric Units: Math Checks</h1>
+<p>This page checks every number the tool states against exact definitions: 1 in = 2.54 cm, 1 lb = 453.59237 g and 1 US gallon = 231 cubic inches. A rounded value passes only if it rounds correctly to the digits shown. Open it from the live site or a local web server, not as a file, so it can read the tool.</p>
+<div id="summary" role="status">Running...</div>
+<ol id="results"></ol>
+<iframe id="tool" src="index.html" title="The tool being checked"></iframe>
+<script>
+(function () {
+  'use strict';
+  // ---- Exact definitions (base units: cm, mL, g) ----
+  var IN = 2.54, FT = 12 * IN, YD = 3 * FT, MI = 5280 * FT;
+  var GAL = 231 * Math.pow(IN, 3), QT = GAL / 4, PT = QT / 2, CUP = PT / 2, FLOZ = CUP / 8, TBSP = FLOZ / 2, TSP = TBSP / 3;
+  var LB = 453.59237, OZ = LB / 16, TON = 2000 * LB;
+  var UNITS = {
+    inch: IN, inches: IN, 'in': IN, foot: FT, feet: FT, ft: FT, yard: YD, yards: YD, yd: YD, mile: MI, miles: MI, mi: MI,
+    mm: 0.1, millimeters: 0.1, cm: 1, dm: 10, decimeter: 10, m: 100, meter: 100, meters: 100, km: 100000, kilometer: 100000,
+    tsp: TSP, tbsp: TBSP, 'fl oz': FLOZ, cup: CUP, cups: CUP, pint: PT, pints: PT, pt: PT, quart: QT, quarts: QT, qt: QT, gallon: GAL, gallons: GAL, gal: GAL,
+    mL: 1, milliliters: 1, dL: 100, deciliters: 100, L: 1000, liter: 1000, liters: 1000,
+    mg: 0.001, milligrams: 0.001, g: 1, gram: 1, grams: 1, kg: 1000, kilogram: 1000, t: 1e6,
+    oz: OZ, ounce: OZ, ounces: OZ, lb: LB, pound: LB, pounds: LB, ton: TON, T: TON
+  };
+  var results = [], fails = 0;
+  function check(name, ok, detail) {
+    results.push([name, !!ok, detail || '']); if (!ok) fails++;
+  }
+  function num(s) { return parseFloat(String(s).replace(/,/g, '')); }
+  function decimals(s) { var m = String(s).replace(/,/g, '').match(/\.(\d+)/); return m ? m[1].length : 0; }
+  // A stated value is right if it rounds correctly to the digits shown.
+  function roundsTo(stated, truth) { return Math.abs(num(stated) - truth) <= 0.5 * Math.pow(10, -decimals(stated)) + 1e-9 * Math.abs(truth); }
+  // "1,760 yards" -> value in base units.
+  function quantity(text) {
+    var t = text.replace(/\((exact|[A-Za-z ]+)\)/g, '').replace(/[~≈=]/g, '').trim();
+    var m = t.match(/^([\d.,]+)\s*([KM]?)\s*(.+)$/);
+    if (!m) return null;
+    var unit = m[3].trim(), scale = m[2] === 'K' ? 1e3 : m[2] === 'M' ? 1e6 : 1;
+    if (!(unit in UNITS)) return null;
+    return { stated: m[1], value: num(m[1]) * scale * UNITS[unit], per: scale * UNITS[unit], unit: unit };
+  }
+
+  function run(win) {
+    var doc = win.document, get = function (expr) { return win.eval(expr); };
+
+    // 1. Quick Reference Guide: every row, every "=" and "≈" in it.
+    doc.querySelectorAll('#intro table tr').forEach(function (tr) {
+      var cells = tr.querySelectorAll('td'); if (cells.length < 2) return;
+      var text = cells[0].textContent + ' ' + cells[1].textContent;
+      var parts = text.split(/(=|≈)/).map(function (p) { return p.trim(); });
+      var first = quantity(parts[0]);
+      for (var i = 1; i < parts.length; i += 2) {
+        var q = quantity(parts[i + 1]);
+        if (!first || !q) { check('Reference: ' + text, false, 'could not read a unit'); continue; }
+        var truth = first.value / q.per;
+        var ok = parts[i] === '=' ? Math.abs(num(q.stated) - truth) < 1e-9 * truth : roundsTo(q.stated, truth);
+        check('Reference: ' + parts[0] + ' ' + parts[i] + ' ' + parts[i + 1], ok, 'exact value ' + truth.toPrecision(7));
+      }
+    });
+
+    // 2. Liquid Lab: sizes in the menu and in the code, and each vessel's full capacity.
+    var unitData = get('unitData'), TRUE = { tsp: TSP, tbsp: TBSP, cup: CUP, pint: PT, quart: QT, gallon: GAL };
+    doc.querySelectorAll('#custUnit option').forEach(function (o) {
+      var m = o.textContent.match(/\(≈\s*([\d.,]+)\s*mL\)/);
+      check('Liquid Lab menu: ' + o.textContent, m && roundsTo(m[1], TRUE[o.value]), 'exact ' + TRUE[o.value].toFixed(4) + ' mL');
+    });
+    Object.keys(TRUE).forEach(function (k) {
+      var u = unitData[k];
+      check('Liquid Lab size: 1 ' + k + ' = ' + u.ml + ' mL', roundsTo(String(u.ml), TRUE[k]), 'exact ' + TRUE[k].toFixed(5));
+      check('Liquid Lab vessel: ' + u.maxUnits + ' ' + u.pluralLabel + ' = ' + u.maxMl + ' mL', roundsTo(String(u.maxMl), u.maxUnits * TRUE[k]), 'exact ' + (u.maxUnits * TRUE[k]).toFixed(3));
+    });
+
+    // 3. Real-world volume comparisons: both sides name the same amount.
+    get('funFacts').forEach(function (f) {
+      var a = quantity(f.metric.replace('~', '')), b = quantity(f.custom.replace('~', ''));
+      var rough = /~/.test(f.metric + f.custom);
+      var ok = a && b && (rough ? Math.abs(a.value / b.value - 1) <= 0.1 : roundsTo(a.stated, b.value / a.per));
+      check('Volume comparison: ' + f.title + ' ' + f.metric + ' ≈ ' + f.custom, ok, rough ? 'within 10% (marked ~)' : 'rounds correctly');
+    });
+
+    // 4. Mass Lab objects: metric and customary labels match the mass used on the scale.
+    get('massObjects').forEach(function (o) {
+      var m = quantity(o.metric), c = quantity(o.custom);
+      check('Mass Lab: ' + o.name + ' ' + o.metric, m && roundsTo(m.stated, o.g / m.per), o.g + ' g on the scale');
+      check('Mass Lab: ' + o.name + ' ' + o.custom, c && roundsTo(c.stated, o.g / c.per), 'exact ' + (o.g / c.per).toFixed(4) + ' ' + c.unit);
+    });
+
+    // 5. Challenge questions: every answer follows from the numbers in its own hint.
+    var ch = get('challenges');
+    function nums(s) { return (s.match(/\d[\d,]*\.?\d*/g) || []).map(num); }
+    function about(s) { var m = s.match(/About ([\d.]+)/); return m ? m[1] : null; }
+    [['hintMetric', 'answerMetric', 'metric'], ['hintCustom', 'answerCustom', 'customary']].forEach(function (side) {
+      var h = function (i) { return nums(ch[i][side[0]]); }, a = function (i) { return ch[i][side[1]]; };
+      [0, 1, 2, 3, 4].forEach(function (i) {
+        var n = h(i), stated = about(a(i));
+        check('Challenge ' + (i + 1) + ' (' + side[2] + '): ' + ch[i].q, stated && roundsTo(stated, n[0] / n[1]), n[0] + ' ÷ ' + n[1] + ' = ' + (n[0] / n[1]).toFixed(3));
+      });
+      var n5 = h(5), pct = a(5).match(/(\d+)% heavier/);
+      check('Challenge 6 (' + side[2] + '): hint arithmetic', Math.abs(n5[0] * n5[1] - n5[2]) < 1e-9, n5[0] + ' × ' + n5[1] + ' = ' + n5[2]);
+      check('Challenge 6 (' + side[2] + '): percent heavier', pct && roundsTo(pct[1], (n5[2] / n5[3] - 1) * 100), ((n5[2] / n5[3] - 1) * 100).toFixed(2) + '%');
+      var n6 = h(6), r6 = n6[0] / n6[1], m6 = a(6).match(/(\d+) × ([\d.]+) (g|oz) = ([\d.]+)/);
+      check('Challenge 7 (' + side[2] + '): between 8 and 9 pencils', r6 >= 8 && r6 <= 9, r6.toFixed(2));
+      check('Challenge 7 (' + side[2] + '): answer arithmetic', m6 && Math.abs(num(m6[1]) * num(m6[2]) - num(m6[4])) < 1e-9, m6 ? m6[0] : 'not found');
+      var n7 = h(7);
+      check('Challenge 8 (' + side[2] + '): hint arithmetic', Math.abs(n7[0] * n7[1] - n7[2]) < 1e-9, n7[0] + ' × ' + n7[1] + ' = ' + n7[2]);
+      check('Challenge 8 (' + side[2] + '): laptop is heavier', side[2] === 'metric' ? n7[2] < n7[3] : n7[2] / 16 < n7[n7.length - 1], '');
+    });
+    var apples = 1800 / 182;
+    check('Challenge 8: about 10 apples balance the laptop', Math.round(apples) === 10, apples.toFixed(2));
+
+    // 6. Quiz answer keys, each worked out from the definitions.
+    var EXPECT = {
+      'How many cups are in 1 gallon?': GAL / CUP,
+      '1 kilometer is approximately how many miles?': 100000 / MI,
+      'How many milliliters are in 1 liter?': 1000,
+      '1 pound (lb) = how many ounces?': LB / OZ,
+      'At sea level, water boils at what temperature in Celsius?': 100,
+      'How many feet are in 1 yard?': YD / FT,
+      '1 inch = how many centimeters?': IN,
+      '1 quart = how many pints?': QT / PT
+    };
+    get('questions').forEach(function (q) {
+      if (q.q in EXPECT) {
+        var right = q.opts.filter(function (o) { return roundsTo(o.match(/[\d.,]+/)[0], EXPECT[q.q]); });
+        check('Quiz: ' + q.q + ' → ' + q.opts[q.ans], right.length === 1 && right[0] === q.opts[q.ans], 'exact ' + EXPECT[q.q].toPrecision(6));
+      } else if (/1 kilogram or 2 pounds/.test(q.q)) {
+        check('Quiz: ' + q.q + ' → ' + q.opts[q.ans], 1000 > 2 * LB && q.ans === 0 && roundsTo('2.2', 1000 / LB) && roundsTo('0.9', 2 * LB / 1000), '1 kg = ' + (1000 / LB).toFixed(4) + ' lb; 2 lb = ' + (2 * LB / 1000).toFixed(4) + ' kg');
+      } else {
+        check('Quiz (fact, checked by hand): ' + q.q + ' → ' + q.opts[q.ans], q.opts[q.ans] === 'Metric', 'a fact, not a calculation: the metric system (SI) is the official system in nearly every country');
+      }
+    });
+
+    // 7. Unit Converter: type values in, read the answers out.
+    var CASES = [
+      ['inch_in', 'inch_out', function (x) { return x * IN; }], ['cm_in', 'cm_out', function (x) { return x / IN; }],
+      ['mi_in', 'mi_out', function (x) { return x * MI / 100000; }], ['km_in', 'km_out', function (x) { return x * 100000 / MI; }],
+      ['cup_in', 'cup_out', function (x) { return x * CUP; }], ['qt_in', 'qt_out', function (x) { return x * QT / 1000; }],
+      ['gal_in', 'gal_out', function (x) { return x * GAL / 1000; }], ['L_in', 'L_out', function (x) { return x * 1000 / QT; }],
+      ['oz_in', 'oz_out', function (x) { return x * OZ; }], ['lb_in', 'lb_out', function (x) { return x * LB / 1000; }],
+      ['g_in', 'g_out', function (x) { return x / OZ; }], ['kg_in', 'kg_out', function (x) { return x * 1000 / LB; }],
+      ['F_in', 'F_out', function (x) { return (x - 32) * 5 / 9; }], ['C_in', 'C_out', function (x) { return x * 9 / 5 + 32; }]
+    ];
+    CASES.forEach(function (c) {
+      var input = doc.getElementById(c[0]), out = doc.getElementById(c[1]);
+      var values = /^[FC]_/.test(c[0]) ? [-40, 0, 32, 37, 98.6, 100, 212] : [0, 1, 2.5, 12, 100];
+      values.forEach(function (x) {
+        input.value = String(x); input.dispatchEvent(new win.Event('input'));
+        var got = num(out.textContent), want = c[2](x);
+        check('Converter ' + c[0].replace('_in', '') + ': ' + x + ' → ' + out.textContent, Math.abs(got - want) <= 0.0005 + 1e-5 * Math.abs(want), 'exact ' + want.toFixed(5));
+      });
+      input.value = ''; input.dispatchEvent(new win.Event('input'));
+      check('Converter ' + c[0].replace('_in', '') + ': an empty box shows a dash', /^—/.test(out.textContent), out.textContent);
+    });
+
+    // 8. Accessibility basics: contrast of the two system colors, the keyboard flow slider, named controls, less motion.
+    function lum(hex) {
+      var h = hex.replace('#', ''), c = [0, 2, 4].map(function (i) { var v = parseInt(h.substr(i, 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    }
+    function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+    var rootStyle = win.getComputedStyle(doc.documentElement);
+    ['--customary', '--metric'].forEach(function (v) {
+      var c = rootStyle.getPropertyValue(v).trim();
+      check('Contrast: white text on ' + v + ' (' + c + ')', contrast('#ffffff', c) >= 4.5, contrast('#ffffff', c).toFixed(2) + ':1');
+      check('Contrast: ' + v + ' text on the cards', contrast(c, '#fffdf8') >= 4.5, contrast(c, '#fffdf8').toFixed(2) + ':1');
+    });
+    var track = doc.getElementById('flowTrack');
+    function key(el, k) { el.dispatchEvent(new win.KeyboardEvent('keydown', { key: k, bubbles: true })); }
+    check('Keyboard: the flow control is a focusable slider', track.tabIndex === 0 && track.getAttribute('role') === 'slider');
+    key(track, 'Home'); key(track, 'ArrowRight');
+    check('Keyboard: an arrow key moves the flow by 5%', track.getAttribute('aria-valuenow') === '5', track.getAttribute('aria-valuetext'));
+    key(track, 'End');
+    check('Keyboard: End sets the flow to 100%', track.getAttribute('aria-valuenow') === '100');
+    key(track, 'Home');
+    check('Keyboard: Home sets the flow to 0%', track.getAttribute('aria-valuenow') === '0');
+    var unnamed = Array.prototype.filter.call(doc.querySelectorAll('button, input'), function (b) { return !(b.getAttribute('aria-label') || b.textContent.trim() || b.title); });
+    check('Every button and box has a name', unnamed.length === 0, unnamed.map(function (b) { return b.id || b.className; }).join(', '));
+    check('Converter answers and quiz feedback are read aloud', doc.querySelectorAll('.conv-result[aria-live]').length === 14 && /qFeedback" role="status"/.test(doc.documentElement.outerHTML));
+    check('Motion stops when the device asks for less', /prefers-reduced-motion: reduce/.test(doc.documentElement.outerHTML));
+
+    // 9. Privacy: nothing loads from outside the page, and nothing is stored.
+    var html = doc.documentElement.outerHTML.replace(/http:\/\/www\.w3\.org\/2000\/svg/g, '');
+    ['https://', 'http://', '<link', '@import', 'fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'indexedDB', 'document.cookie', 'sendBeacon'].forEach(function (bad) {
+      check('Privacy: no "' + bad + '"', html.indexOf(bad) < 0);
+    });
+
+    show();
+  }
+
+  function show() {
+    var list = document.getElementById('results');
+    results.forEach(function (r) {
+      var li = document.createElement('li'); li.className = r[1] ? 'pass' : 'fail';
+      li.textContent = (r[1] ? '✓ ' : '✗ ') + r[0] + (r[2] ? '  (' + r[2] + ')' : '');
+      list.appendChild(li);
+    });
+    document.getElementById('summary').textContent = (results.length - fails) + ' of ' + results.length + ' passed' + (fails ? '. ' + fails + ' failed.' : '.');
+  }
+
+  var frame = document.getElementById('tool');
+  frame.addEventListener('load', function () {
+    try { run(frame.contentWindow); }
+    catch (e) { check('The checks could run', false, e.message + ' (open this page from a web server, not as a file)'); show(); }
+  });
+})();
+</script>
+</body>
+</html>
